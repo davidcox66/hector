@@ -7,6 +7,7 @@ import me.prettyprint.cassandra.model.HSlicePredicate;
 import me.prettyprint.cassandra.model.thrift.ThriftColumnFactory;
 import me.prettyprint.cassandra.service.ExceptionsTranslator;
 import me.prettyprint.cassandra.service.ExceptionsTranslatorImpl;
+import me.prettyprint.cassandra.service.tx.HTransactionManager;
 import me.prettyprint.hector.api.ColumnFactory;
 import me.prettyprint.hector.api.ConsistencyLevelPolicy;
 import me.prettyprint.hector.api.Keyspace;
@@ -89,9 +90,12 @@ public class AbstractColumnFamilyTemplate<K, N> {
     return columnValueSerializers.get(columnName);
   }
    
+  public Keyspace getKeyspace() {
+	  return keyspace;
+  }
   
   public boolean isBatched() {
-    return batched;
+    return batched || HTransactionManager.getInstance().isInTransaction();
   }
 
   public AbstractColumnFamilyTemplate<K, N> setBatched(boolean batched) {
@@ -118,7 +122,13 @@ public class AbstractColumnFamilyTemplate<K, N> {
   }
 
   public Mutator<K> createMutator() {
-    return HFactory.createMutator(keyspace, keySerializer);
+	HTransactionManager txManager = HTransactionManager.getInstance();
+	if( txManager.isInTransaction() ) {
+		return txManager.getTransaction().getMutator( this );
+	}
+	else {
+		return HFactory.createMutator(keyspace, keySerializer);
+	}
   }
 
   /**
@@ -170,7 +180,10 @@ public class AbstractColumnFamilyTemplate<K, N> {
    * @param key
    */
   public void deleteRow(K key) {    
-    createMutator().addDeletion(key, columnFamily, null, topSerializer).execute();
+    Mutator<K> mutator = createMutator().addDeletion(key, columnFamily, null, topSerializer);
+    if( !HTransactionManager.getInstance().isInTransaction() ) {
+    	mutator.execute();
+    }
   }
 
   /**
@@ -189,7 +202,10 @@ public class AbstractColumnFamilyTemplate<K, N> {
    * @param columnName
    */
   public void deleteColumn(K key, N columnName) {
-    createMutator().addDeletion(key, columnFamily, columnName, topSerializer).execute();
+    Mutator<K> mutator = createMutator().addDeletion(key, columnFamily, columnName, topSerializer);
+    if( !HTransactionManager.getInstance().isInTransaction() ) {
+    	mutator.execute();
+    }
   }
   
   /**
